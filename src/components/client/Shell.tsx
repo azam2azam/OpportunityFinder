@@ -10,6 +10,7 @@ import {
   Building2, Network, UserRound, SlidersHorizontal, Settings, FileSearch,
   Menu, X, Moon, Sun, LogOut, ChevronDown, Search,
   Share2, Server, Workflow, ArrowLeftRight, Upload, BadgeCheck, Waypoints,
+  LifeBuoy, BookOpen, Blocks,
 } from 'lucide-react'
 import type { NavGroup } from '@/lib/navigation'
 
@@ -18,6 +19,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   ShieldCheck, UserPlus, CalendarClock, Megaphone, BarChart3, MessageSquareText,
   Building2, Network, UserRound, SlidersHorizontal, Settings, FileSearch,
   Share2, Server, Workflow, ArrowLeftRight, Upload, BadgeCheck, Waypoints,
+  LifeBuoy, BookOpen, Blocks,
 }
 
 export interface ShellUser {

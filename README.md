@@ -191,9 +191,31 @@ questions are logged too; a log of only successes is the wrong half.
 
 ---
 
+## Documentation
+
+Two documents, both readable inside the application under **Help** and published to `docs/`:
+
+| Document | In the app | In the repo | For |
+|---|---|---|---|
+| **User Manual** | `/help/manual` | [`docs/USER-MANUAL.md`](docs/USER-MANUAL.md) | Everyone who uses the platform |
+| **Application Architecture** | `/help/architecture` | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architects and integration engineers |
+
+The architecture document carries the full integration guidelines.
+
+Both are one piece of content rendered two ways. The source is structured data in
+`src/lib/docs/`, rendered in the app by `DocView` and to Markdown by `npm run docs:generate`.
+Counts and reference tables — rules, feeds, roles, permissions, modules — are read from the
+modules they describe rather than transcribed, so the documentation cannot claim thirty-three
+detection rules on a day when there are thirty-five. Edit the source and regenerate; never edit
+the Markdown by hand.
+
+---
+
 ## Data ingestion
 
-Nine feeds, four ways in, one contract. Full procedure in
+Nine feeds, four ways in, one contract. The integration contract — principles, transports,
+load semantics, quality gates and the checklist for adding a feed — is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Step-by-step operating procedure in
 [`docs/INGESTION-MANUAL.md`](docs/INGESTION-MANUAL.md); the architecture as Mermaid in
 [`docs/INTEGRATION-DIAGRAM.md`](docs/INTEGRATION-DIAGRAM.md).
 
@@ -293,9 +315,10 @@ src/
 scripts/
   run-detection.ts       CLI detection run
   simulate-workflow.ts   Backfills operational history
-  verify-http.ts         52-check end-to-end verification
+  verify-http.ts         92-check end-to-end verification
 tests/                   108 unit tests
-docs/                    Ingestion manual, integration diagram, platform mapping, assumptions
+docs/                    Generated architecture doc and user manual, ingestion manual,
+                         integration diagram, platform mapping, assumptions
 ```
 
 ---

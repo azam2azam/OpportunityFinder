@@ -80,6 +80,14 @@ export const NAVIGATION: NavGroup[] = [
       { href: '/audit', label: 'Audit & Governance', icon: 'FileSearch', permission: 'audit.view' },
     ],
   },
+  {
+    title: 'Help',
+    items: [
+      { href: '/help', label: 'Help & Documentation', icon: 'LifeBuoy', permission: 'help.view', hint: 'How the system works, and how to use it' },
+      { href: '/help/manual', label: 'User Manual', icon: 'BookOpen', permission: 'help.view' },
+      { href: '/help/architecture', label: 'Architecture & Integration', icon: 'Blocks', permission: 'help.view' },
+    ],
+  },
 ]
 
 export function visibleNavigation(principal: Principal): NavGroup[] {

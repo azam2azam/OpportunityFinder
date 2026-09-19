@@ -51,6 +51,9 @@ export const PERMISSIONS = [
   'askdata.viewsql', // see the generated SQL (authorised technical users)
   'export.data',
   'audit.view',
+
+  // Documentation
+  'help.view', // user manual and architecture document — granted to every role
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]
@@ -77,7 +80,7 @@ const ACT: Permission[] = ['opportunity.assign', 'opportunity.act', 'opportunity
  * Role catalogue. Group roles carry no `primaryHospitalId`; hospital roles do,
  * and `UserHospitalScope` rows widen a user beyond their primary hospital.
  */
-export const ROLES: RoleDefinition[] = [
+const ROLE_DEFINITIONS: RoleDefinition[] = [
   {
     key: 'GROUP_CEO',
     name: 'Group CEO',
@@ -310,6 +313,18 @@ export const ROLES: RoleDefinition[] = [
     permissions: ['audit.view', 'analytics.view', 'opportunity.view', 'rules.view', 'integration.view'],
   },
 ]
+
+/**
+ * Help is universal.
+ *
+ * Granted here rather than listed on each role: a role added later would
+ * otherwise ship without access to its own documentation, and nobody would
+ * notice until a new user asked where the manual was.
+ */
+export const ROLES: RoleDefinition[] = ROLE_DEFINITIONS.map((r) => ({
+  ...r,
+  permissions: [...r.permissions, 'help.view'],
+}))
 
 export const ROLE_BY_KEY: Record<string, RoleDefinition> = Object.fromEntries(
   ROLES.map((r) => [r.key, r])

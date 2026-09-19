@@ -11,6 +11,13 @@
  * Usage: npm run verify:http  (with the dev server already running)
  */
 
+// Imported so the documentation assertions compare against the real catalogues
+// rather than against numbers typed into this file, which would drift too.
+import { NAVIGATION } from '../src/lib/navigation'
+import { RULE_CATALOGUE } from '../src/lib/detection/rules'
+import { DOMAINS } from '../src/lib/ingestion/domains'
+import { ROLES } from '../src/lib/rbac'
+
 const BASE = process.env.VERIFY_BASE ?? 'http://localhost:3300'
 const PASSWORD = 'Demo!Pass123'
 
@@ -487,6 +494,68 @@ async function main() {
     'a read-only role cannot trigger quality evaluation',
     qualityDenied.status === 403,
     `status ${qualityDenied.status}`
+  )
+
+  // ── help and documentation ────────────────────────────────────────────
+  group('Help and documentation')
+
+  const helpIndex = await get('/help', gdRiyadh)
+  check('GET /help', helpIndex.status === 200, `status ${helpIndex.status}`)
+
+  const manual = await get('/help/manual', gdRiyadh)
+  const manualText = visibleText(manual.body)
+  check('GET /help/manual', manual.status === 200, `status ${manual.status}`)
+  check(
+    'manual lists every navigation module',
+    NAVIGATION.every((g) => g.items.every((i) => manualText.includes(i.label))),
+    'a module in the sidebar is missing from the manual'
+  )
+
+  const architecture = await get('/help/architecture', gdRiyadh)
+  const archText = visibleText(architecture.body)
+  check('GET /help/architecture', architecture.status === 200, `status ${architecture.status}`)
+  check(
+    'architecture document contains the integration guidelines',
+    archText.includes('Integration guidelines') && archText.includes('natural key'),
+    'integration guidelines section did not render'
+  )
+
+  // The value of deriving the document from the code is that these numbers
+  // track the system. If someone adds a rule or a feed and these assertions
+  // fail, the document was hard-coded somewhere and has started lying.
+  check(
+    'documented counts are derived from the running system',
+    archText.includes(`${RULE_CATALOGUE.length} rules`) &&
+      archText.includes(`${DOMAINS.length} feeds`) &&
+      archText.includes(`${ROLES.length} roles`),
+    `expected ${RULE_CATALOGUE.length} rules / ${DOMAINS.length} feeds / ${ROLES.length} roles in the prose`
+  )
+  check(
+    'every feed contract appears in the integration guidelines',
+    DOMAINS.every((d) => archText.includes(d.label)),
+    'a feed is missing from the contract table'
+  )
+
+  // Help is granted to every role on purpose: a role shipping without access
+  // to its own documentation is a defect nobody would notice for months.
+  const navigatorHelp = await get('/help/manual', navigator)
+  check(
+    'an operational role can read the manual',
+    navigatorHelp.status === 200,
+    `status ${navigatorHelp.status}`
+  )
+  const auditorArchitecture = await get('/help/architecture', auditor)
+  check(
+    'a read-only role can read the architecture document',
+    auditorArchitecture.status === 200,
+    `status ${auditorArchitecture.status}`
+  )
+
+  // Documentation reads no clinical feed, so it must not claim a data source.
+  check(
+    'documentation pages carry no provenance bar',
+    !manualText.includes('Data source'),
+    'the manual claimed a data lineage it does not have'
   )
 
   // ── audit trail ───────────────────────────────────────────────────────

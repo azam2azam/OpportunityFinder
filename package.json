@@ -19,7 +19,8 @@
     "simulate": "tsx scripts/simulate-workflow.ts",
     "seed:integration": "tsx prisma/seed-integration.ts",
     "quality": "tsx scripts/run-quality.ts",
-    "docs:diagram": "tsx scripts/generate-diagram-doc.ts"
+    "docs:diagram": "tsx scripts/generate-diagram-doc.ts",
+    "docs:generate": "tsx scripts/generate-docs.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
