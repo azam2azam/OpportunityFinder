@@ -1,0 +1,1042 @@
+// Opportuna — Hospital Growth & Patient Opportunity Command Center
+// Conceptual model per spec section 28. SQLite backs the reference
+// deployment; the schema is portable to Postgres / Snowflake (see
+// docs/DATA-PLATFORM.md) — enum-like fields are stored as strings and
+// validated in the semantic layer (src/lib/enums.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------
+// ORGANISATION
+// ---------------------------------------------------------------------
+
+model Hospital {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  name      String
+  city      String
+  region    String
+  beds      Int
+  latitude  Float
+  longitude Float
+  isActive  Boolean @default(true)
+
+  departments   Department[]
+  physicians    Physician[]
+  patients      Patient[]
+  encounters    Encounter[]
+  appointments  Appointment[]
+  surgeries     Surgery[]
+  claims        InsuranceClaim[]
+  referrals     Referral[]
+  opportunities Opportunity[]
+  campaigns     Campaign[]
+  userScopes    UserHospitalScope[]
+  serviceLines  ServiceLineMetric[]
+}
+
+model Department {
+  id         String @id @default(cuid())
+  hospitalId String
+  code       String
+  name       String
+  // Cost-centre grouping used for accountability of opportunity ownership.
+  costCentre String
+
+  hospital      Hospital      @relation(fields: [hospitalId], references: [id])
+  physicians    Physician[]
+  encounters    Encounter[]
+  opportunities Opportunity[]
+
+  @@unique([hospitalId, code])
+}
+
+model Specialty {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+  // Service line this specialty rolls up to (Cardiac, Oncology, Surgical...).
+  line String
+
+  physicians    Physician[]
+  encounters    Encounter[]
+  appointments  Appointment[]
+  referrals     Referral[]
+  opportunities Opportunity[]
+  serviceLines  ServiceLineMetric[]
+}
+
+model Physician {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  name         String
+  hospitalId   String
+  departmentId String
+  specialtyId  String
+  // Weekly clinic slots the physician is contracted for — the denominator
+  // for the capacity / utilisation opportunity in section 14.
+  weeklySlots  Int     @default(40)
+  isActive     Boolean @default(true)
+
+  hospital      Hospital       @relation(fields: [hospitalId], references: [id])
+  department    Department     @relation(fields: [departmentId], references: [id])
+  specialty     Specialty      @relation(fields: [specialtyId], references: [id])
+  encounters    Encounter[]
+  appointments  Appointment[]
+  surgeries     Surgery[]
+  referralsMade Referral[]     @relation("ReferringPhysician")
+  prescriptions Prescription[]
+  opportunities Opportunity[]
+  patients      Patient[]      @relation("PrimaryPhysician")
+}
+
+// ---------------------------------------------------------------------
+// PATIENT AND CLINICAL
+// ---------------------------------------------------------------------
+
+model Patient {
+  id                 String    @id @default(cuid())
+  mrn                String    @unique
+  sourceSystem       String    @default("VIDA")
+  sourceId           String
+  firstName          String
+  lastName           String
+  dateOfBirth        DateTime
+  gender             String
+  nationalIdMasked   String
+  phone              String?
+  email              String?
+  city               String
+  district           String
+  latitude           Float
+  longitude          Float
+  // Distance to the registering hospital in km — a scoring factor (section 16).
+  distanceKm         Float
+  preferredChannel   String    @default("SMS")
+  contactable        Boolean   @default(true)
+  consentMarketing   Boolean   @default(true)
+  language           String    @default("ar")
+  hospitalId         String
+  primaryPhysicianId String?
+  payerId            String?
+  insuranceStatus    String    @default("INSURED")
+  policyNumber       String?
+  registeredAt       DateTime
+  lastEncounterAt    DateTime?
+  isDeceased         Boolean   @default(false)
+  vipFlag            Boolean   @default(false)
+
+  hospital         Hospital   @relation(fields: [hospitalId], references: [id])
+  primaryPhysician Physician? @relation("PrimaryPhysician", fields: [primaryPhysicianId], references: [id])
+  payer            Payer?     @relation(fields: [payerId], references: [id])
+
+  encounters      Encounter[]
+  appointments    Appointment[]
+  diagnoses       Diagnosis[]
+  procedures      Procedure[]
+  surgeries       Surgery[]
+  labResults      LabResult[]
+  prescriptions   Prescription[]
+  pharmacyTxns    PharmacyTransaction[]
+  claims          InsuranceClaim[]
+  referrals       Referral[]
+  opportunities   Opportunity[]
+  campaignMembers CampaignMember[]
+  communications  Communication[]
+
+  @@index([hospitalId])
+  @@index([lastEncounterAt])
+}
+
+model Encounter {
+  id                   String    @id @default(cuid())
+  sourceSystem         String    @default("VIDA")
+  sourceId             String
+  patientId            String
+  hospitalId           String
+  departmentId         String
+  specialtyId          String
+  physicianId          String
+  // OUTPATIENT | INPATIENT | EMERGENCY | DAYCASE | TELEHEALTH
+  type                 String
+  startedAt            DateTime
+  endedAt              DateTime?
+  status               String    @default("COMPLETED")
+  chiefComplaint       String?
+  // Clinical note summary; carries the follow-up recommendation signal.
+  noteSummary          String?
+  followUpRecommended  Boolean   @default(false)
+  followUpDays         Int?
+  dischargeDisposition String?
+  grossCharge          Float     @default(0)
+
+  patient    Patient    @relation(fields: [patientId], references: [id])
+  hospital   Hospital   @relation(fields: [hospitalId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+  specialty  Specialty  @relation(fields: [specialtyId], references: [id])
+  physician  Physician  @relation(fields: [physicianId], references: [id])
+
+  diagnoses     Diagnosis[]
+  procedures    Procedure[]
+  labResults    LabResult[]
+  prescriptions Prescription[]
+  claims        InsuranceClaim[]
+  referrals     Referral[]
+
+  @@index([patientId, startedAt])
+  @@index([hospitalId, startedAt])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  sourceSystem  String   @default("VIDA")
+  sourceId      String
+  patientId     String
+  hospitalId    String
+  specialtyId   String
+  physicianId   String
+  scheduledFor  DateTime
+  createdAt     DateTime
+  // BOOKED | COMPLETED | NO_SHOW | CANCELLED_PATIENT | CANCELLED_HOSPITAL | RESCHEDULED
+  status        String
+  cancelReason  String?
+  // Set when the appointment was created to satisfy an opportunity action.
+  opportunityId String?
+  isFollowUp    Boolean  @default(false)
+  channel       String   @default("WALK_IN")
+
+  patient   Patient   @relation(fields: [patientId], references: [id])
+  hospital  Hospital  @relation(fields: [hospitalId], references: [id])
+  specialty Specialty @relation(fields: [specialtyId], references: [id])
+  physician Physician @relation(fields: [physicianId], references: [id])
+
+  @@index([patientId, scheduledFor])
+  @@index([status])
+}
+
+model Diagnosis {
+  id          String   @id @default(cuid())
+  patientId   String
+  encounterId String
+  icd10       String
+  description String
+  // PRIMARY | SECONDARY
+  rank        String   @default("PRIMARY")
+  isChronic   Boolean  @default(false)
+  diagnosedAt DateTime
+
+  patient   Patient   @relation(fields: [patientId], references: [id])
+  encounter Encounter @relation(fields: [encounterId], references: [id])
+
+  @@index([patientId])
+  @@index([icd10])
+}
+
+model Procedure {
+  id          String   @id @default(cuid())
+  patientId   String
+  encounterId String
+  cptCode     String
+  description String
+  performedAt DateTime
+  charge      Float    @default(0)
+
+  patient   Patient   @relation(fields: [patientId], references: [id])
+  encounter Encounter @relation(fields: [encounterId], references: [id])
+
+  @@index([patientId])
+}
+
+model Surgery {
+  id             String    @id @default(cuid())
+  patientId      String
+  hospitalId     String
+  physicianId    String
+  cptCode        String
+  description    String
+  // RECOMMENDED | CONSULT_DONE | WORKUP_DONE | SCHEDULED | PERFORMED | CANCELLED | DEFERRED
+  status         String
+  recommendedAt  DateTime
+  scheduledFor   DateTime?
+  performedAt    DateTime?
+  cancelReason   String?
+  // Pre-operative workup finished — drives the workup-done-no-surgery rule.
+  workupComplete Boolean   @default(false)
+  estimatedValue Float     @default(0)
+  urgency        String    @default("ELECTIVE")
+
+  patient   Patient   @relation(fields: [patientId], references: [id])
+  hospital  Hospital  @relation(fields: [hospitalId], references: [id])
+  physician Physician @relation(fields: [physicianId], references: [id])
+
+  @@index([patientId])
+  @@index([status])
+}
+
+model LabResult {
+  id                 String    @id @default(cuid())
+  sourceSystem       String    @default("VIDA_LIS")
+  patientId          String
+  encounterId        String?
+  loincCode          String
+  testName           String
+  panel              String
+  value              Float?
+  textValue          String?
+  unit               String
+  refLow             Float?
+  refHigh            Float?
+  // NORMAL | HIGH | LOW | CRITICAL_HIGH | CRITICAL_LOW | PENDING
+  flag               String
+  resultedAt         DateTime
+  orderedAt          DateTime
+  // True when the order was placed but no result has been filed.
+  isPending          Boolean   @default(false)
+  // Clinically recommended repeat interval in days (HbA1c = 90, for example).
+  repeatIntervalDays Int?
+
+  patient   Patient    @relation(fields: [patientId], references: [id])
+  encounter Encounter? @relation(fields: [encounterId], references: [id])
+
+  @@index([patientId, resultedAt])
+  @@index([loincCode, flag])
+}
+
+model Medication {
+  id                 String  @id @default(cuid())
+  code               String  @unique
+  name               String
+  form               String
+  strength           String
+  atcClass           String
+  isChronic          Boolean @default(false)
+  // Requires periodic lab or physician monitoring (warfarin, methotrexate).
+  requiresMonitoring Boolean @default(false)
+  monitoringLoinc    String?
+  isHighRisk         Boolean @default(false)
+  unitPrice          Float   @default(0)
+
+  prescriptions Prescription[]
+  pharmacyTxns  PharmacyTransaction[]
+}
+
+model Prescription {
+  id                String    @id @default(cuid())
+  patientId         String
+  encounterId       String?
+  physicianId       String
+  medicationId      String
+  dosage            String
+  daysSupply        Int
+  refillsAuthorized Int       @default(0)
+  refillsUsed       Int       @default(0)
+  prescribedAt      DateTime
+  // Planned end of the whole course; null for open-ended chronic therapy.
+  courseEndsAt      DateTime?
+  status            String    @default("ACTIVE")
+
+  patient      Patient               @relation(fields: [patientId], references: [id])
+  encounter    Encounter?            @relation(fields: [encounterId], references: [id])
+  physician    Physician             @relation(fields: [physicianId], references: [id])
+  medication   Medication            @relation(fields: [medicationId], references: [id])
+  pharmacyTxns PharmacyTransaction[]
+
+  @@index([patientId])
+}
+
+model PharmacyTransaction {
+  id             String   @id @default(cuid())
+  patientId      String
+  prescriptionId String?
+  medicationId   String
+  dispensedAt    DateTime
+  quantity       Int
+  daysSupply     Int
+  amount         Float
+  isRefill       Boolean  @default(false)
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id])
+  medication   Medication    @relation(fields: [medicationId], references: [id])
+
+  @@index([patientId, dispensedAt])
+}
+
+// ---------------------------------------------------------------------
+// FINANCIAL
+// ---------------------------------------------------------------------
+
+model Payer {
+  id                     String @id @default(cuid())
+  code                   String @unique
+  name                   String
+  type                   String
+  // Contractual window (days) inside which a rejected claim may be resubmitted.
+  resubmissionWindowDays Int    @default(60)
+
+  patients Patient[]
+  claims   InsuranceClaim[]
+}
+
+model InsuranceClaim {
+  id                 String    @id @default(cuid())
+  sourceSystem       String    @default("VIDA_RCM")
+  claimNumber        String    @unique
+  patientId          String
+  hospitalId         String
+  encounterId        String?
+  payerId            String
+  serviceDate        DateTime
+  submittedAt        DateTime?
+  // SUBMITTED | PENDING | PAID | PARTIALLY_PAID | REJECTED | RESUBMITTED | WRITTEN_OFF | APPEALED
+  status             String
+  billedAmount       Float
+  approvedAmount     Float     @default(0)
+  paidAmount         Float     @default(0)
+  serviceCode        String
+  serviceDescription String
+  departmentName     String
+  resubmissionCount  Int       @default(0)
+
+  patient    Patient              @relation(fields: [patientId], references: [id])
+  hospital   Hospital             @relation(fields: [hospitalId], references: [id])
+  encounter  Encounter?           @relation(fields: [encounterId], references: [id])
+  payer      Payer                @relation(fields: [payerId], references: [id])
+  rejections InsuranceRejection[]
+
+  @@index([status])
+  @@index([hospitalId, serviceDate])
+}
+
+model InsuranceRejection {
+  id                     String   @id @default(cuid())
+  claimId                String
+  // CODING | ELIGIBILITY | MISSING_DOCUMENTATION | MEDICAL_NECESSITY |
+  // PRIOR_AUTH | SERVICE_NOT_COVERED | DUPLICATE | TIMELY_FILING |
+  // UNDERPAID | BUNDLING
+  reasonCode             String
+  reasonText             String
+  rejectedAmount         Float
+  rejectedAt             DateTime
+  // Whether the payer contract still permits resubmission today.
+  isAppealable           Boolean  @default(true)
+  // Recovery playbook outcome: RESUBMIT | CORRECT_CODING |
+  // OBTAIN_DOCUMENTATION | APPEAL | PATIENT_RESPONSIBILITY |
+  // FINANCIAL_COUNSELLING | WRITE_OFF
+  recommendedPathway     String?
+  // Historical recovery rate for this reason / payer pair, 0..1.
+  historicalRecoveryRate Float    @default(0)
+  responsibleDepartment  String
+
+  claim InsuranceClaim @relation(fields: [claimId], references: [id])
+
+  @@index([reasonCode])
+}
+
+model Referral {
+  id               String    @id @default(cuid())
+  patientId        String
+  hospitalId       String
+  fromPhysicianId  String
+  toSpecialtyId    String
+  // INTERNAL | EXTERNAL_IN | EXTERNAL_OUT
+  direction        String    @default("INTERNAL")
+  issuedAt         DateTime
+  expiresAt        DateTime?
+  // ISSUED | BOOKED | COMPLETED | EXPIRED | CANCELLED | LEAKED
+  status           String
+  encounterId      String?
+  reason           String
+  estimatedValue   Float     @default(0)
+  // Populated when the referral was fulfilled outside the group.
+  externalProvider String?
+
+  patient       Patient    @relation(fields: [patientId], references: [id])
+  hospital      Hospital   @relation(fields: [hospitalId], references: [id])
+  fromPhysician Physician  @relation("ReferringPhysician", fields: [fromPhysicianId], references: [id])
+  toSpecialty   Specialty  @relation(fields: [toSpecialtyId], references: [id])
+  encounter     Encounter? @relation(fields: [encounterId], references: [id])
+
+  @@index([status])
+  @@index([patientId])
+}
+
+// ---------------------------------------------------------------------
+// OPPORTUNITY CORE — the central object of the platform (section 29)
+// ---------------------------------------------------------------------
+
+model OpportunityRule {
+  id                String   @id @default(cuid())
+  key               String   @unique
+  name              String
+  // LAB | SURGERY | MEDICATION | INSURANCE | REACTIVATION | APPOINTMENT |
+  // REFERRAL | SERVICE_LINE
+  category          String
+  description       String
+  enabled           Boolean  @default(true)
+  // JSON parameter bag the detector reads (thresholds, windows, codes).
+  // Edited from Opportunity Rules; never hard-coded in the detector.
+  params            String   @default("{}")
+  // Baseline clinical urgency 0..100 contributed by this rule.
+  clinicalUrgency   Int      @default(50)
+  // Default SLA in days from detection to first action.
+  slaDays           Int      @default(7)
+  defaultOwnerRole  String   @default("CARE_NAVIGATOR")
+  recommendedAction String
+  // Version increments on every parameter change, for audit reproducibility.
+  version           Int      @default(1)
+  updatedAt         DateTime @updatedAt
+  updatedBy         String?
+
+  opportunities Opportunity[]
+}
+
+model ScoringModel {
+  id         String   @id @default(cuid())
+  name       String
+  isActive   Boolean  @default(false)
+  notes      String?
+  // JSON: { "CRITICAL": 80, "HIGH": 60, "MEDIUM": 40 } — the score bands that
+  // map a 0..100 score onto a priority. Configurable so a hospital can retune
+  // banding without a code change.
+  thresholds String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  updatedBy  String?
+
+  weights       ScoringWeight[]
+  opportunities Opportunity[]
+}
+
+model ScoringWeight {
+  id      String @id @default(cuid())
+  modelId String
+  // clinicalUrgency | conversionProbability | financialValue | timeSensitivity |
+  // patientEngagement | historicalUtilisation | serviceAvailability |
+  // insuranceStatus | proximity
+  factor  String
+  weight  Float
+
+  model ScoringModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, factor])
+}
+
+model Opportunity {
+  id           String @id @default(cuid())
+  reference    String @unique
+  ruleId       String
+  category     String
+  title        String
+  // Human-readable narrative of why this was detected (section 17 — a score
+  // is never presented as an unexplained AI decision).
+  detectionReason String
+  patientId    String?
+  hospitalId   String
+  departmentId String?
+  specialtyId  String?
+  physicianId  String?
+
+  detectedAt            DateTime
+  // DETECTED | REVIEWED | ASSIGNED | CONTACTED | APPOINTMENT_SCHEDULED |
+  // PATIENT_RETURNED | TREATMENT_COMPLETED | CONVERTED | CLOSED |
+  // REJECTED | NOT_APPLICABLE
+  status                String    @default("DETECTED")
+  // CRITICAL | HIGH | MEDIUM | LOW
+  priority              String
+  score                 Float
+  // 0..1 confidence in the underlying signal.
+  confidence            Float     @default(0.8)
+  potentialValue        Float     @default(0)
+  realisedValue         Float     @default(0)
+  clinicalUrgency       Int       @default(0)
+  conversionProbability Float     @default(0)
+  scoringModelId        String?
+  // JSON array of { factor, raw, normalised, weight, contribution, explanation }
+  scoreBreakdown        String    @default("[]")
+  // JSON blob of the source records that triggered detection (ids and values).
+  evidence              String    @default("{}")
+  recommendedAction     String
+  recommendedChannel    String    @default("PHONE")
+
+  ownerUserId  String?
+  ownerTeam    String?
+  slaDueAt     DateTime?
+  lastActionAt DateTime?
+  nextActionAt DateTime?
+  closedAt     DateTime?
+  outcome      String?
+  outcomeNote  String?
+  // Stops the detector re-creating the same opportunity on every run.
+  dedupeKey    String    @unique
+
+  rule         OpportunityRule @relation(fields: [ruleId], references: [id])
+  patient      Patient?        @relation(fields: [patientId], references: [id])
+  hospital     Hospital        @relation(fields: [hospitalId], references: [id])
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  specialty    Specialty?      @relation(fields: [specialtyId], references: [id])
+  physician    Physician?      @relation(fields: [physicianId], references: [id])
+  owner        User?           @relation(fields: [ownerUserId], references: [id])
+  scoringModel ScoringModel?   @relation(fields: [scoringModelId], references: [id])
+
+  actions         OpportunityAction[]
+  communications  Communication[]
+  campaignMembers CampaignMember[]
+  conversion      Conversion?
+
+  @@index([hospitalId, status])
+  @@index([category, priority])
+  @@index([detectedAt])
+  @@index([ownerUserId, status])
+}
+
+model OpportunityAction {
+  id            String   @id @default(cuid())
+  opportunityId String
+  // REVIEW | ASSIGN | CALL | SMS | EMAIL | WHATSAPP | SCHEDULE_APPOINTMENT |
+  // PHYSICIAN_REVIEW | RESUBMIT_CLAIM | CORRECT_CODING | OBTAIN_DOCUMENTATION |
+  // FINANCIAL_COUNSELLING | PHARMACY_FOLLOWUP | STATUS_CHANGE | NOTE | CLOSE
+  type          String
+  performedById String
+  performedAt   DateTime @default(now())
+  note          String?
+  fromStatus    String?
+  toStatus      String?
+  outcome       String?
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  performedBy User        @relation(fields: [performedById], references: [id])
+
+  @@index([opportunityId])
+}
+
+model Conversion {
+  id               String   @id @default(cuid())
+  opportunityId    String   @unique
+  convertedAt      DateTime
+  // APPOINTMENT | TREATMENT | SURGERY | CLAIM_RECOVERED | REFILL | REACTIVATION
+  conversionType   String
+  revenue          Float    @default(0)
+  daysToConvert    Int
+  attributedUserId String?
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------
+// CAMPAIGNS AND COMMUNICATION
+// ---------------------------------------------------------------------
+
+model Campaign {
+  id              String    @id @default(cuid())
+  name            String
+  hospitalId      String?
+  description     String
+  // JSON criteria used to build the cohort (age, category, thresholds...).
+  criteria        String    @default("{}")
+  // JSON array of channels in send order.
+  channels        String    @default("[]")
+  status          String    @default("DRAFT")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  // Copy sent to the patient — reviewed before launch; the platform never
+  // auto-generates clinical advice to a patient.
+  messageTemplate String    @default("")
+  approvedById    String?
+  approvedAt      DateTime?
+
+  hospital  Hospital?        @relation(fields: [hospitalId], references: [id])
+  createdBy User             @relation(fields: [createdById], references: [id])
+  members   CampaignMember[]
+}
+
+model CampaignMember {
+  id            String    @id @default(cuid())
+  campaignId    String
+  patientId     String
+  opportunityId String?
+  addedAt       DateTime  @default(now())
+  // ELIGIBLE | CONTACTED | RESPONDED | BOOKED | VISITED | CONVERTED | OPTED_OUT
+  status        String    @default("ELIGIBLE")
+  respondedAt   DateTime?
+  revenue       Float     @default(0)
+
+  campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+
+  @@unique([campaignId, patientId])
+}
+
+model Communication {
+  id            String   @id @default(cuid())
+  patientId     String
+  opportunityId String?
+  channel       String
+  direction     String   @default("OUTBOUND")
+  sentAt        DateTime @default(now())
+  subject       String?
+  body          String
+  status        String   @default("SENT")
+  sentById      String?
+
+  patient     Patient      @relation(fields: [patientId], references: [id])
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id])
+
+  @@index([patientId])
+}
+
+// ---------------------------------------------------------------------
+// ANALYTICS SUPPORT
+// ---------------------------------------------------------------------
+
+model ServiceLineMetric {
+  id                String @id @default(cuid())
+  hospitalId        String
+  specialtyId       String
+  periodMonth       String
+  encounters        Int    @default(0)
+  newPatients       Int    @default(0)
+  revenue           Float  @default(0)
+  capacitySlots     Int    @default(0)
+  bookedSlots       Int    @default(0)
+  cancellations     Int    @default(0)
+  referralsOut      Int    @default(0)
+  referralsRetained Int    @default(0)
+
+  hospital  Hospital  @relation(fields: [hospitalId], references: [id])
+  specialty Specialty @relation(fields: [specialtyId], references: [id])
+
+  @@unique([hospitalId, specialtyId, periodMonth])
+}
+
+model AlertRule {
+  id         String  @id @default(cuid())
+  name       String
+  // Metric key evaluated by the alert engine (src/lib/alerts.ts).
+  metric     String
+  comparator String
+  threshold  Float
+  window     String  @default("WEEK")
+  scope      String  @default("GROUP")
+  enabled    Boolean @default(true)
+  severity   String  @default("INFO")
+  audience   String  @default("GROUP_CEO,GROUP_COO")
+
+  alerts Alert[]
+}
+
+model Alert {
+  id               String    @id @default(cuid())
+  ruleId           String
+  hospitalId       String?
+  message          String
+  severity         String
+  value            Float
+  threshold        Float
+  raisedAt         DateTime  @default(now())
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+
+  rule AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+}
+
+model DetectionRun {
+  id          String    @id @default(cuid())
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  triggeredBy String
+  // JSON: per-rule counts of scanned / created / updated / suppressed.
+  stats       String    @default("{}")
+  status      String    @default("RUNNING")
+  error       String?
+}
+
+// ---------------------------------------------------------------------
+// SECURITY AND GOVERNANCE (section 25)
+// ---------------------------------------------------------------------
+
+model Role {
+  id          String @id @default(cuid())
+  key         String @unique
+  name        String
+  scopeLevel  String
+  description String
+  // JSON array of permission strings; see src/lib/rbac.ts.
+  permissions String @default("[]")
+
+  users User[]
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  passwordHash      String
+  roleId            String
+  // Null for group-level users; set for hospital-scoped users.
+  primaryHospitalId String?
+  departmentScope   String?
+  title             String
+  isActive          Boolean   @default(true)
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  hospitalScopes UserHospitalScope[]
+  opportunities  Opportunity[]
+  actions        OpportunityAction[]
+  campaigns      Campaign[]
+  auditEvents    AuditEvent[]
+  nlQueries      NlQuery[]
+}
+
+model UserHospitalScope {
+  id         String @id @default(cuid())
+  userId     String
+  hospitalId String
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hospital Hospital @relation(fields: [hospitalId], references: [id])
+
+  @@unique([userId, hospitalId])
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  userId     String?
+  userEmail  String?
+  // AUTH | PHI_ACCESS | OPPORTUNITY | RULE_CHANGE | SCORING_CHANGE |
+  // CAMPAIGN | EXPORT | NL_QUERY | SQL_EXECUTION | ADMIN | SECURITY
+  category   String
+  action     String
+  entityType String?
+  entityId   String?
+  // Patient whose PHI was touched — patient-level access logging is required.
+  patientId  String?
+  hospitalId String?
+  ip         String?
+  userAgent  String?
+  // JSON detail bag.
+  detail     String   @default("{}")
+  outcome    String   @default("SUCCESS")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([at])
+  @@index([category])
+  @@index([patientId])
+}
+
+model NlQuery {
+  id             String   @id @default(cuid())
+  userId         String
+  askedAt        DateTime @default(now())
+  question       String
+  generatedSql   String?
+  // PASSED | BLOCKED_WRITE | BLOCKED_TABLE | BLOCKED_SCOPE | BLOCKED_PARSE | ERROR
+  validation     String
+  validationNote String?
+  rowCount       Int      @default(0)
+  durationMs     Int      @default(0)
+  visualization  String?
+  explanation    String?
+  // Result preview kept for audit replay; PHI columns are masked first.
+  resultPreview  String   @default("[]")
+  engine         String   @default("RULE_TEMPLATE")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([askedAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  ip        String?
+}
+
+// ---------------------------------------------------------------------
+// DATA INGESTION CONTROL PLANE
+//
+// The integration layer made operable rather than only documented. These
+// tables describe where data comes from, how it is mapped onto the platform
+// schema, what happened on every load, and whether the result was fit to use.
+// ---------------------------------------------------------------------
+
+model SourceSystem {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  name           String
+  vendor         String
+  // HIS | LIS | RCM | PHARMACY | RIS | CRM | FILE | EXTERNAL_API
+  type           String
+  description    String
+  // API_PULL | CDC_STREAM | FILE_DROP | MANUAL_UPLOAD | DB_LINK
+  connectionMode String
+  endpoint       String?
+  // OAUTH2 | API_KEY | MTLS | BASIC | NONE
+  authMode       String    @default("NONE")
+  environment    String    @default("PRODUCTION")
+  ownerTeam      String
+  // CONNECTED | DEGRADED | DISCONNECTED | NOT_CONFIGURED
+  status         String    @default("NOT_CONFIGURED")
+  lastContactAt  DateTime?
+  isActive       Boolean   @default(true)
+  // Notes an integrator needs: quirks, gotchas, contact points.
+  operatorNotes  String?
+
+  pipelines IngestionPipeline[]
+}
+
+model IngestionPipeline {
+  id             String  @id @default(cuid())
+  key            String  @unique
+  name           String
+  sourceSystemId String
+  // Logical domain: PATIENT | ENCOUNTER | LAB_RESULT | APPOINTMENT | CLAIM |
+  // PHARMACY | REFERRAL | SURGERY | DIAGNOSIS
+  domain         String
+  // Platform table the domain lands in.
+  targetEntity   String
+  // FULL | INCREMENTAL | CDC
+  mode           String  @default("INCREMENTAL")
+  // Cron expression, documented in the ingestion manual.
+  schedule       String?
+  enabled        Boolean @default(true)
+  // Column the incremental watermark advances on, and its last value.
+  watermarkField String?
+  lastWatermark  String?
+  // Minutes within which a run is expected to complete after its trigger.
+  slaMinutes     Int     @default(60)
+  // Typical volume, used to flag a run that loaded far too little.
+  expectedRecordsPerRun Int @default(0)
+  description    String
+
+  sourceSystem SourceSystem      @relation(fields: [sourceSystemId], references: [id], onDelete: Cascade)
+  mappings     FieldMapping[]
+  runs         IngestionRun[]
+  qualityRules DataQualityRule[]
+
+  @@index([domain])
+}
+
+model FieldMapping {
+  id           String  @id @default(cuid())
+  pipelineId   String
+  sourceField  String
+  sourceType   String  @default("string")
+  targetField  String
+  targetType   String  @default("string")
+  required     Boolean @default(false)
+  // Part of the natural key used to match an existing row on upsert.
+  isKey        Boolean @default(false)
+  // Named transform applied before load; see src/lib/ingestion/transforms.ts.
+  transform    String?
+  defaultValue String?
+  notes        String?
+
+  pipeline IngestionPipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineId, sourceField])
+}
+
+model IngestionRun {
+  id               String    @id @default(cuid())
+  pipelineId       String
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+  // RUNNING | SUCCEEDED | PARTIAL | FAILED
+  status           String    @default("RUNNING")
+  // SCHEDULE | MANUAL | CDC | UPLOAD
+  trigger          String
+  triggeredBy      String?
+  fileName         String?
+  recordsRead      Int       @default(0)
+  recordsInserted  Int       @default(0)
+  recordsUpdated   Int       @default(0)
+  recordsRejected  Int       @default(0)
+  recordsSkipped   Int       @default(0)
+  bytesProcessed   Int       @default(0)
+  durationMs       Int       @default(0)
+  errorSummary     String?
+  // True when the run validated only and wrote nothing.
+  dryRun           Boolean   @default(false)
+
+  pipeline       IngestionPipeline   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  issues         IngestionIssue[]
+  qualityResults DataQualityResult[]
+
+  @@index([pipelineId, startedAt])
+  @@index([status])
+}
+
+model IngestionIssue {
+  id        String  @id @default(cuid())
+  runId     String
+  rowNumber Int
+  // ERROR blocks the row; WARNING loads it with a note.
+  severity  String  @default("ERROR")
+  code      String
+  field     String?
+  message   String
+  rawValue  String?
+
+  run IngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+model DataQualityRule {
+  id         String  @id @default(cuid())
+  pipelineId String
+  key        String
+  name       String
+  // COMPLETENESS | VALIDITY | CONSISTENCY | TIMELINESS | UNIQUENESS
+  dimension  String
+  description String
+  // Human-readable statement of the check; evaluated by src/lib/ingestion/quality.ts.
+  expression String
+  // Minimum acceptable pass rate, 0..1.
+  threshold  Float   @default(0.95)
+  severity   String  @default("WARNING")
+  enabled    Boolean @default(true)
+
+  pipeline IngestionPipeline   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  results  DataQualityResult[]
+
+  @@unique([pipelineId, key])
+}
+
+model DataQualityResult {
+  id            String   @id @default(cuid())
+  ruleId        String
+  runId         String?
+  evaluatedAt   DateTime @default(now())
+  passed        Boolean
+  measuredValue Float
+  threshold     Float
+  recordsTested Int      @default(0)
+  recordsFailed Int      @default(0)
+  // Sample of offending source keys, for an integrator to chase.
+  sampleKeys    String   @default("[]")
+
+  rule DataQualityRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  run  IngestionRun?   @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, evaluatedAt])
+}

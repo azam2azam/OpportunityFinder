@@ -1,0 +1,60 @@
+{
+  "name": "opportuna",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3300",
+    "build": "next build",
+    "start": "next start -p 3300",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma db push --skip-generate && npm run db:seed && npm run seed:integration && npm run detect -- --reset && npm run simulate && npm run quality",
+    "db:studio": "prisma studio",
+    "detect": "tsx scripts/run-detection.ts",
+    "test": "tsx --tsconfig tsconfig.scripts.json --test tests/engine.test.ts tests/scoring.test.ts tests/nlsql.test.ts tests/rbac.test.ts",
+    "verify:http": "tsx --tsconfig tsconfig.scripts.json scripts/verify-http.ts",
+    "verify:all": "npm run test && npm run verify:http",
+    "simulate": "tsx scripts/simulate-workflow.ts",
+    "seed:integration": "tsx prisma/seed-integration.ts",
+    "quality": "tsx scripts/run-quality.ts",
+    "docs:diagram": "tsx scripts/generate-diagram-doc.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "autoprefixer": "^10.4.20",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
+    "jose": "^5.10.0",
+    "lucide-react": "^0.468.0",
+    "next": "16.3.0",
+    "postcss": "^8.4.49",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "recharts": "^2.15.0",
+    "server-only": "^0.0.1",
+    "tailwindcss": "^3.4.17",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "prisma": "^6.19.3",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true
+  }
+}

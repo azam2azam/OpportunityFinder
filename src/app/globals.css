@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+  }
+
+  .dark body {
+    @apply bg-ink-950 text-ink-100;
+  }
+
+  /* Numeric columns must align across rows, or scanning a table of amounts
+     becomes a per-row reading exercise rather than a glance. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-brand-950;
+  }
+
+  /* Visible focus is a hard requirement here: this is keyboard-driven
+     operational software, and the browser default ring disappears against the
+     brand surfaces. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-white;
+  }
+
+  .dark :focus-visible {
+    @apply ring-offset-ink-950;
+  }
+
+  ::-webkit-scrollbar {
+    @apply h-2 w-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-300;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-ink-700;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-ink-200 bg-white shadow-card dark:border-ink-800 dark:bg-ink-900;
+  }
+
+  .card-pad {
+    @apply p-4;
+  }
+
+  .label {
+    @apply text-2xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-400;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm
+           font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-brand-600 bg-brand-600 text-white hover:bg-brand-700 hover:border-brand-700;
+  }
+
+  .btn-secondary {
+    @apply border-ink-300 bg-white text-ink-700 hover:bg-ink-50
+           dark:border-ink-700 dark:bg-ink-800 dark:text-ink-200 dark:hover:bg-ink-700;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-ink-600 hover:bg-ink-100
+           dark:text-ink-300 dark:hover:bg-ink-800;
+  }
+
+  .btn-danger {
+    @apply border-danger-600 bg-danger-600 text-white hover:bg-danger-700;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-ink-300 bg-white px-2.5 py-1.5 text-sm text-ink-900
+           placeholder:text-ink-400 focus:border-brand-500
+           dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium;
+  }
+
+  .th {
+    @apply whitespace-nowrap px-3 py-2 text-left text-2xs font-semibold uppercase
+           tracking-wide text-ink-500 dark:text-ink-400;
+  }
+
+  .td {
+    @apply px-3 py-2 align-middle text-sm text-ink-700 dark:text-ink-300;
+  }
+
+  .row-link {
+    @apply cursor-pointer transition-colors hover:bg-brand-50/60 dark:hover:bg-ink-800/60;
+  }
+
+  /* Wide content scrolls inside its own container; the page body never scrolls
+     sideways. */
+  .scroll-x {
+    @apply -mx-4 overflow-x-auto px-4;
+  }
+}

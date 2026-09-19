@@ -1,0 +1,21 @@
+node_modules
+.next
+*.db
+*.db-journal
+.env.local
+tsconfig.tsbuildinfo
+
+# Local environment — real secrets never belong in the repo.
+# .env.example documents the required variables instead.
+.env
+.env.*
+!.env.example
+
+# Build output
+/.next/
+/out/
+next-env.d.ts
+
+# Test and tooling artefacts
+coverage/
+*.log
